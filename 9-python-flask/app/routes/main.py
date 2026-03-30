@@ -3,6 +3,7 @@ from app.models.user import LoginPayload
 from pydantic import ValidationError
 from app import db
 from bson import ObjectId
+from app.models.products import *
 
 main_bp = Blueprint("main_bp", __name__)
 
@@ -28,10 +29,10 @@ def login():
 def get_products():
     print("DB:", db)
     products_cursor = db.products.find({})
-    products_list = []
-    for product in products_cursor:
-        product["_id"] = str(product["_id"])
-        products_list.append(product)
+    products_list = [
+        ProductDBModel(**product).model_dump(by_alias=True, exclude_none=True)
+        for product in products_cursor
+    ]
     return jsonify(products_list)
 
 
@@ -42,11 +43,22 @@ def create_products():
 
 
 # RF: O sistema deve permitir a visualização dos detalhes de um único produto
-@main_bp.route("/product/<int:product_id>", methods=["GET"])
+@main_bp.route("/product/<string:product_id>", methods=["GET"])
 def get_product_by_id(product_id):
-    return jsonify(
-        {"message": f"Está é a rota de visualização de detalhe do produto {product_id}"}
-    )
+    try:
+        oid = ObjectId(product_id)
+    except Exception as e:
+        return jsonify({"error": f"Erro ao buscar o produto {product_id}: {e}"})
+
+    product = db.products.find_one({"_id": oid})
+
+    if product:
+        product_model = ProductDBModel(**product).model_dump(
+            by_alias=True, exclude_none=True
+        )
+        return jsonify(product_model)
+    else:
+        return jsonify({"error": f"Produto com o ID: {product_id} - não encontrado."})
 
 
 # RF: O sistema deve permitir a atualização de um unico produto e produto existente
