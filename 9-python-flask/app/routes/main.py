@@ -1,9 +1,12 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, current_app
 from app.models.user import LoginPayload
 from pydantic import ValidationError
 from app import db
 from bson import ObjectId
 from app.models.products import *
+from app.decorators import token_required
+from datetime import datetime, timedelta, timezone
+import jwt
 
 main_bp = Blueprint("main_bp", __name__)
 
@@ -19,9 +22,19 @@ def login():
     except Exception as e:
         return jsonify({"error": "Erro durante a requisição do dado"}), 500
 
-    return jsonify(
-        {"message": f"Realizar o login do usuario {user_data.model_dump_json()}"}
-    )
+    if user_data.username == "admin" and user_data.password == "supersecret":
+        token = jwt.encode(
+            {
+                "user_id": user_data.username,
+                "exp": datetime.now(timezone.utc) + timedelta(minutes=30),
+            },
+            current_app.config["SECRET_KEY"],
+            algorithm="HS256",
+        )
+
+        return jsonify({"access_token": token}), 200
+
+    return jsonify({"error": "Credenciais inválidas"}), 401
 
 
 # RF: O sistema deve permitir listagem de todos os produtos
@@ -38,8 +51,22 @@ def get_products():
 
 # RF: O sistema deve permitir a criação de um novo produto
 @main_bp.route("/products", methods=["POST"])
-def create_products():
-    return jsonify({"message": "Está é a rota de criação de produtos!"})
+@token_required
+def create_product(token):
+    try:
+        product = Product(**request.get_json())
+    except ValidationError as e:
+        return jsonify({"error": e.errors()})
+    result = db.products.insert_one(product.model_dump())
+    return (
+        jsonify(
+            {
+                "message": "Está é a rota de criação de produto",
+                "id": str(result.inserted_id),
+            }
+        ),
+        201,
+    )
 
 
 # RF: O sistema deve permitir a visualização dos detalhes de um único produto
